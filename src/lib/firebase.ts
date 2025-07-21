@@ -13,16 +13,14 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-// Initialize Firebase for client-side
-function getFirebaseApp(): FirebaseApp {
-    if (typeof window !== 'undefined') {
-        return getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-    }
-    // On the server, we need to create a new app instance
-    return initializeApp(firebaseConfig, `app-${Date.now()}-${Math.random()}`);
+// Initialize Firebase
+let app: FirebaseApp;
+if (getApps().length === 0) {
+    app = initializeApp(firebaseConfig);
+} else {
+    app = getApp();
 }
 
-const app = getFirebaseApp();
 const db = getFirestore(app);
 
 export { db, collection, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteDoc };

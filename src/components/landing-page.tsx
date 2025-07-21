@@ -10,12 +10,13 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Label } from "./ui/label";
-import { Hand, Users, Swords, Trophy } from "lucide-react";
+import { Hand, Users, Swords, Trophy, Loader2 } from "lucide-react";
 import { db, doc, setDoc } from "@/lib/firebase";
 
 export function LandingPage() {
   const [nickname, setNickname] = useState("");
   const [joinCode, setJoinCode] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
 
@@ -44,6 +45,7 @@ export function LandingPage() {
       });
       return;
     }
+    setIsCreating(true);
     const tableCode = Math.floor(1000 + Math.random() * 9000).toString();
     saveIdentity();
     
@@ -64,9 +66,11 @@ export function LandingPage() {
         console.error("Error creating lobby:", error);
         toast({
             title: "Error Creating Table",
-            description: "Could not create a new game table. Please check your connection and try again.",
+            description: "Could not create a new game table. Please check your connection and Firebase configuration.",
             variant: "destructive",
         });
+    } finally {
+        setIsCreating(false);
     }
   };
 
@@ -116,8 +120,8 @@ export function LandingPage() {
           />
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
-          <Button onClick={handleCreateGame} className="w-full h-12 text-lg transition-transform transform hover:scale-105" size="lg">
-            Create Table
+          <Button onClick={handleCreateGame} className="w-full h-12 text-lg transition-transform transform hover:scale-105" size="lg" disabled={isCreating}>
+            {isCreating ? <Loader2 className="animate-spin" /> : 'Create Table'}
           </Button>
           <Dialog>
             <DialogTrigger asChild>
