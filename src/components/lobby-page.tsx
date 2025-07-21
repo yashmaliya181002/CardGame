@@ -22,7 +22,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { usePeer } from "@/hooks/use-peer";
-import type { Player } from "@/hooks/use-peer";
 
 interface LobbyPageProps {
   tableId: string;
@@ -38,76 +37,45 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   const nickname = useMemo(() => typeof window !== 'undefined' ? localStorage.getItem("nickname") : "Player", []);
   const playerId = useMemo(() => typeof window !== 'undefined' ? localStorage.getItem("playerId") : "player_id", []);
 
-  const { peer, peerId, players, setPlayers, isConnected, connections, broadcast } = usePeer(playerId, nickname, isHost);
+  const { peer, peerId, players, setPlayers, broadcast, message } = usePeer(playerId, nickname, tableId, isHost);
 
+  // Effect for handling incoming messages from peers
   useEffect(() => {
-    if (!peer) return;
+    if (!message) return;
 
-    const handleConnection = (conn: any) => {
-      conn.on('open', () => {
-        console.log(`Data connection opened with ${conn.peer}`);
-        conn.on('data', (data: any) => {
-          if (data.type === 'join-request') {
-            const newPlayer = { id: data.payload.id, name: data.payload.name, isHost: false };
-            const updatedPlayers = [...players, newPlayer];
-            setPlayers(updatedPlayers);
-            broadcast({ type: 'lobby-update', payload: { players: updatedPlayers } });
-          }
-        });
-        
-        // Send current lobby state to the new peer
-        conn.send({ type: 'lobby-update', payload: { players } });
-      });
-    };
-
-    if (isHost) {
-      peer.on('connection', handleConnection);
+    switch (message.type) {
+        case 'lobby-update':
+            setPlayers(message.payload.players);
+            setNumPlayers(message.payload.numPlayers.toString());
+            break;
+        case 'start-game':
+            router.push(`/game/${message.payload.tableId}?host=${isHost}&players=${message.payload.numPlayers}`);
+            break;
     }
+  }, [message, router, setPlayers, isHost]);
 
-    peer.on('error', (err) => {
-        console.error("PeerJS error:", err);
-        toast({ title: "Connection Error", description: `Could not connect: ${err.message}`, variant: "destructive" });
-        router.push('/');
-    });
 
-    return () => {
-      if (isHost) {
-        peer.off('connection', handleConnection);
-      }
-    };
-  }, [peer, isHost, players, setPlayers, broadcast, toast, router]);
-
+  // Effect for host to add themself to player list
   useEffect(() => {
-    if (!isHost && isConnected && peer) {
-      const conn = connections[0];
-      if (conn) {
-        conn.send({ type: 'join-request', payload: { id: playerId, name: nickname } });
-      }
+    if (isHost && peerId && playerId && nickname) {
+        setPlayers([{ id: playerId, name: nickname, isHost: true }]);
     }
-  }, [isHost, isConnected, peer, connections, playerId, nickname]);
-
-  const effectiveTableId = isHost ? peerId : tableId;
-
-  useEffect(() => {
-    if (!playerId || !nickname) {
-        toast({ title: "Error", description: "Could not identify player. Please go back to the home page.", variant: "destructive" });
-        router.push('/');
-    } else if (isHost) {
-      setPlayers([{ id: playerId, name: nickname, isHost: true }]);
-    }
-  }, [playerId, nickname, isHost, router, toast, setPlayers]);
+  }, [isHost, peerId, playerId, nickname, setPlayers]);
 
 
   const handleNumPlayersChange = (value: string) => {
+    const newNumPlayers = parseInt(value, 10);
     setNumPlayers(value);
     if(isHost) {
-      broadcast({type: 'num-players-update', payload: {numPlayers: value}})
+      const updatedPlayers = players.slice(0, newNumPlayers);
+      setPlayers(updatedPlayers);
+      broadcast({type: 'lobby-update', payload: { players: updatedPlayers, numPlayers: value }});
     }
   }
 
   const handleCopyCode = () => {
-    if(!effectiveTableId) return;
-    navigator.clipboard.writeText(effectiveTableId);
+    if(!peerId) return;
+    navigator.clipboard.writeText(peerId);
     setIsCopied(true);
     toast({ title: "Copied!", description: "Table code copied to clipboard." });
     setTimeout(() => setIsCopied(false), 2000);
@@ -115,8 +83,8 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   
   const handleStartGame = () => {
     if (isHost) {
-      broadcast({ type: 'start-game', payload: { tableId: effectiveTableId, numPlayers: requiredPlayersCount } });
-      router.push(`/game/${effectiveTableId}?host=true&players=${requiredPlayersCount}`);
+      broadcast({ type: 'start-game', payload: { tableId: peerId, numPlayers: requiredPlayersCount } });
+      router.push(`/game/${peerId}?host=true&players=${requiredPlayersCount}`);
     }
   }
 
@@ -129,7 +97,7 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   const requiredPlayersCount = parseInt(numPlayers);
   const canStartGame = isHost && currentPlayersCount === requiredPlayersCount;
 
-  if (!effectiveTableId && isHost) {
+  if (isHost && !peerId) {
     return (
        <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-yellow-100 p-4 font-headline">
          <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -149,8 +117,8 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
           <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-lg">
             <p className="text-muted-foreground">TABLE CODE</p>
             <div className="flex items-center gap-2 mt-2">
-              <h2 className="text-4xl font-bold tracking-widest text-primary">{effectiveTableId}</h2>
-              <Button size="icon" variant="ghost" onClick={handleCopyCode} disabled={!effectiveTableId}>
+              <h2 className="text-4xl font-bold tracking-widest text-primary">{isHost ? peerId : tableId}</h2>
+              <Button size="icon" variant="ghost" onClick={handleCopyCode} disabled={!peerId && !tableId}>
                 {isCopied ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5" />}
               </Button>
             </div>

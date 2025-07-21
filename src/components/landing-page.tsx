@@ -46,6 +46,7 @@ export function LandingPage() {
     }
     setIsCreating(true);
     // We navigate to a generic lobby page, which will handle peer creation
+    // The lobby page will generate the code from the host's peerId
     router.push(`/lobby/host?host=true`);
   };
 

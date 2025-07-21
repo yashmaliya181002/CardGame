@@ -1,8 +1,10 @@
 
-"use client"
+"use client";
+
 import { useState, useEffect, useRef, useCallback } from 'react';
-import Peer, { DataConnection } from 'peerjs';
+import type { Peer, DataConnection } from 'peerjs';
 import { useRouter } from 'next/navigation';
+import { useToast } from './use-toast';
 
 export interface Player {
   id: string;
@@ -10,36 +12,56 @@ export interface Player {
   isHost: boolean;
 }
 
-export const usePeer = (playerId: string | null, nickname: string | null, isHost: boolean, tableId?: string) => {
-  const router = useRouter();
-  const [peer, setPeer] = useState<Peer | null>(null);
-  const [peerId, setPeerId] = useState<string>('');
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [connections, setConnections] = useState<DataConnection[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const peerInstance = useRef<Peer | null>(null);
+export type Message = {
+    type: 'lobby-update' | 'start-game' | 'join-request' | 'game-state-update' | 'player-action';
+    payload: any;
+}
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
+export const usePeer = (
+    playerId: string | null,
+    nickname: string | null,
+    tableId: string | undefined,
+    isHost: boolean
+) => {
+    const router = useRouter();
+    const { toast } = useToast();
+    const [peer, setPeer] = useState<Peer | null>(null);
+    const [peerId, setPeerId] = useState<string>('');
+    const [players, setPlayers] = useState<Player[]>([]);
+    const [connections, setConnections] = useState<DataConnection[]>([]);
+    const [message, setMessage] = useState<Message | null>(null);
+    const peerInstance = useRef<Peer | null>(null);
+
+    const broadcast = useCallback((data: Message) => {
+        connections.forEach(conn => conn.send(data));
+    }, [connections]);
+
+    useEffect(() => {
+        if (!playerId || !nickname) {
+            toast({ title: "Missing Identity", description: "Player ID or nickname not found. Redirecting to home.", variant: "destructive" });
+            router.push('/');
+            return;
+        }
+
         import('peerjs').then(({ default: Peer }) => {
-            const newPeer = isHost 
-                ? new Peer() 
-                : new Peer();
+            if (peerInstance.current) return;
 
+            const newPeer = new Peer();
             peerInstance.current = newPeer;
             setPeer(newPeer);
 
             newPeer.on('open', (id) => {
-                console.log('My peer ID is: ' + id);
+                console.log('PeerJS connection open. My ID is:', id);
                 setPeerId(id);
+
                 if (isHost) {
-                    setPlayers([{ id: playerId!, name: nickname!, isHost: true }]);
+                    setPlayers([{ id: playerId, name: nickname, isHost: true }]);
                 } else if (tableId) {
-                    const conn = newPeer.connect(tableId);
+                    const conn = newPeer.connect(tableId, { reliable: true });
                     conn.on('open', () => {
-                        console.log(`Connected to host: ${tableId}`);
-                        setConnections([conn]);
-                        setIsConnected(true);
+                        console.log(`Connection to host ${tableId} opened.`);
+                        setConnections(prev => [...prev, conn]);
+                        conn.send({ type: 'join-request', payload: { id: playerId, name: nickname, isHost: false } });
                     });
                 }
             });
@@ -47,45 +69,58 @@ export const usePeer = (playerId: string | null, nickname: string | null, isHost
             newPeer.on('connection', (conn) => {
                 console.log(`Incoming connection from ${conn.peer}`);
                 setConnections(prev => [...prev, conn]);
+
+                conn.on('data', (data: any) => {
+                    const receivedMessage = data as Message;
+                    console.log('Host received data:', receivedMessage);
+                    
+                    if (receivedMessage.type === 'join-request' && isHost) {
+                        const newPlayer = receivedMessage.payload as Player;
+                        const updatedPlayers = [...players, newPlayer];
+                        setPlayers(updatedPlayers);
+                        
+                        const numPlayers = localStorage.getItem('numPlayers') || '4';
+                        broadcast({
+                            type: 'lobby-update',
+                            payload: { players: updatedPlayers, numPlayers: numPlayers }
+                        });
+                    }
+                });
             });
 
-            return () => {
-                newPeer.destroy();
-            };
+            newPeer.on('error', (err) => {
+                console.error("PeerJS error:", err);
+                toast({ title: "Connection Error", description: `Could not connect: ${err.message}`, variant: "destructive" });
+                router.push('/');
+            });
         });
-    }
-  }, [isHost, tableId, playerId, nickname]);
 
-  const broadcast = useCallback((data: any) => {
-    connections.forEach(conn => conn.send(data));
-  }, [connections]);
+        return () => {
+            peerInstance.current?.destroy();
+            peerInstance.current = null;
+        }
+    }, [isHost, tableId, playerId, nickname, router, toast, players, broadcast]);
 
-  useEffect(() => {
-    if (!peer) return;
+    // Effect for handling data from connections for ALL peers
+    useEffect(() => {
+        if (!connections.length) return;
 
-    const handleData = (data: any, conn: DataConnection) => {
-      console.log('Received data:', data);
-      if (data.type === 'lobby-update') {
-        setPlayers(data.payload.players);
-      }
-      if (data.type === 'start-game') {
-        router.push(`/game/${data.payload.tableId}?players=${data.payload.numPlayers}`);
-      }
-      if (data.type === 'num-players-update') {
-        // Logic for non-host clients to update player count if needed
-      }
-    };
-    
-    connections.forEach(conn => {
-        conn.on('data', (data) => handleData(data, conn));
-    });
+        const handleData = (data: any) => {
+            const receivedMessage = data as Message;
+            console.log('Client received data:', receivedMessage);
+            setMessage(receivedMessage);
+        };
 
-    return () => {
         connections.forEach(conn => {
-            conn.off('data', handleData);
+            conn.on('data', handleData);
         });
-    }
-  }, [peer, connections, router]);
 
-  return { peer, peerId, players, setPlayers, isConnected, connections, broadcast };
+        return () => {
+            connections.forEach(conn => {
+                conn.off('data', handleData);
+            });
+        }
+    }, [connections]);
+
+    return { peer, peerId, players, setPlayers, broadcast, message };
 };
