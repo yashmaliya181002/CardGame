@@ -37,7 +37,6 @@ interface LobbyPageProps {
 export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   const router = useRouter();
   const { toast } = useToast();
-  const [player, setPlayer] = useState<Player | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [numPlayers, setNumPlayers] = useState("4");
   const [isCopied, setIsCopied] = useState(false);
@@ -55,16 +54,14 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       const lobbyDocRef = doc(db, "lobbies", tableId);
       try {
         if (isHostLeaving) {
-          // Host leaves, delete the entire lobby
           await deleteDoc(lobbyDocRef);
         } else {
-          // Player leaves, remove them from the players array
           const docSnap = await getDoc(lobbyDocRef);
           if (docSnap.exists()) {
-             const aPlayer = docSnap.data().players.find((p: Player) => p.id === playerId);
-             if (aPlayer) {
+             const playerToRemove = docSnap.data().players.find((p: Player) => p.id === playerId);
+             if (playerToRemove) {
                 await updateDoc(lobbyDocRef, {
-                  players: arrayRemove(aPlayer)
+                  players: arrayRemove(playerToRemove)
                 });
              }
           }
@@ -85,17 +82,17 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
     }
 
     const self: Player = { id: playerId, name: nickname, isHost };
-    setPlayer(self);
     const lobbyDocRef = doc(db, "lobbies", tableId);
 
     const joinLobby = async () => {
       try {
         const docSnap = await getDoc(lobbyDocRef);
-         if (!docSnap.exists() || docSnap.data().status === 'ended') {
+         if (!docSnap.exists()) {
            toast({ title: "Lobby not found", description: "This lobby doesn't exist or has been closed.", variant: "destructive" });
            router.push('/');
            return;
          }
+         
          if (docSnap.data().status === 'in-progress') {
            const isPlayerInGame = docSnap.data().players.some((p: Player) => p.id === playerId);
            if(isPlayerInGame) {
@@ -117,7 +114,6 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
         console.error("Error joining lobby: ", error);
         toast({ title: "Error", description: "Could not join the lobby.", variant: "destructive" });
         router.push('/');
-        return;
       }
     };
     
@@ -148,21 +144,10 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       router.push('/');
     });
 
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // This is a legacy feature and might not work in all modern browsers
-      // for making async calls. The leaveLobby logic is better handled
-      // when the component unmounts or via explicit user action.
-      // For simplicity, we can rely on the user clicking the exit button.
-    };
-    
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
       unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [tableId, isHost, nickname, playerId, router, toast]);
   
 
   const handleNumPlayersChange = async (value: string) => {
