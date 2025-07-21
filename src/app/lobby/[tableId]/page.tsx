@@ -15,7 +15,7 @@ function Lobby() {
 
 export default function LobbyPageContainer() {
     return (
-        <Suspense fallback={<div>Loading...</div>}>
+        <Suspense fallback={<div>Loading Lobby...</div>}>
             <Lobby />
         </Suspense>
     )

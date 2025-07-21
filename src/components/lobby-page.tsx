@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,13 +20,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-
-type Player = {
-  id: string;
-  name: string;
-  isHost: boolean;
-};
+} from "@/components/ui/alert-dialog";
+import { usePeer } from "@/hooks/use-peer";
+import type { Player } from "@/hooks/use-peer";
 
 interface LobbyPageProps {
   tableId: string;
@@ -36,53 +32,111 @@ interface LobbyPageProps {
 export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   const router = useRouter();
   const { toast } = useToast();
-  // For now, this is mock data. We'll replace it with P2P state.
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [numPlayers, setNumPlayers] = useState("4");
   const [isCopied, setIsCopied] = useState(false);
-
-  const nickname = typeof window !== 'undefined' ? localStorage.getItem("nickname") : "Player";
-  const playerId = typeof window !== 'undefined' ? localStorage.getItem("playerId") : "player_id";
+  const [numPlayers, setNumPlayers] = useState("4");
   
+  const nickname = useMemo(() => typeof window !== 'undefined' ? localStorage.getItem("nickname") : "Player", []);
+  const playerId = useMemo(() => typeof window !== 'undefined' ? localStorage.getItem("playerId") : "player_id", []);
+
+  const { peer, peerId, players, setPlayers, isConnected, connections, broadcast } = usePeer(playerId, nickname, isHost);
+
   useEffect(() => {
-      // In a real P2P setup, we would join a network here.
-      // For now, if you are the host, you are the only one in the lobby.
-      if (playerId && nickname) {
-          const self = { id: playerId, name: nickname, isHost };
-          setPlayers([self]);
-      } else {
-        toast({ title: "Error", description: "Could not identify player.", variant: "destructive" });
+    if (!peer) return;
+
+    const handleConnection = (conn: any) => {
+      conn.on('open', () => {
+        console.log(`Data connection opened with ${conn.peer}`);
+        conn.on('data', (data: any) => {
+          if (data.type === 'join-request') {
+            const newPlayer = { id: data.payload.id, name: data.payload.name, isHost: false };
+            const updatedPlayers = [...players, newPlayer];
+            setPlayers(updatedPlayers);
+            broadcast({ type: 'lobby-update', payload: { players: updatedPlayers } });
+          }
+        });
+        
+        // Send current lobby state to the new peer
+        conn.send({ type: 'lobby-update', payload: { players } });
+      });
+    };
+
+    if (isHost) {
+      peer.on('connection', handleConnection);
+    }
+
+    peer.on('error', (err) => {
+        console.error("PeerJS error:", err);
+        toast({ title: "Connection Error", description: `Could not connect: ${err.message}`, variant: "destructive" });
         router.push('/');
+    });
+
+    return () => {
+      if (isHost) {
+        peer.off('connection', handleConnection);
       }
-  }, [playerId, nickname, isHost, router, toast]);
+    };
+  }, [peer, isHost, players, setPlayers, broadcast, toast, router]);
+
+  useEffect(() => {
+    if (!isHost && isConnected && peer) {
+      const conn = connections[0];
+      if (conn) {
+        conn.send({ type: 'join-request', payload: { id: playerId, name: nickname } });
+      }
+    }
+  }, [isHost, isConnected, peer, connections, playerId, nickname]);
+
+  const effectiveTableId = isHost ? peerId : tableId;
+
+  useEffect(() => {
+    if (!playerId || !nickname) {
+        toast({ title: "Error", description: "Could not identify player. Please go back to the home page.", variant: "destructive" });
+        router.push('/');
+    } else if (isHost) {
+      setPlayers([{ id: playerId, name: nickname, isHost: true }]);
+    }
+  }, [playerId, nickname, isHost, router, toast, setPlayers]);
 
 
   const handleNumPlayersChange = (value: string) => {
     setNumPlayers(value);
-    // In P2P, the host would broadcast this change to other peers.
+    if(isHost) {
+      broadcast({type: 'num-players-update', payload: {numPlayers: value}})
+    }
   }
 
   const handleCopyCode = () => {
-    navigator.clipboard.writeText(tableId);
+    if(!effectiveTableId) return;
+    navigator.clipboard.writeText(effectiveTableId);
     setIsCopied(true);
     toast({ title: "Copied!", description: "Table code copied to clipboard." });
     setTimeout(() => setIsCopied(false), 2000);
   };
   
   const handleStartGame = () => {
-    // This will navigate all players to the game screen.
-    // In P2P, the host would send a "start-game" message.
-    router.push(`/game/${tableId}?host=${isHost}`);
+    if (isHost) {
+      broadcast({ type: 'start-game', payload: { tableId: effectiveTableId, numPlayers: requiredPlayersCount } });
+      router.push(`/game/${effectiveTableId}?host=true&players=${requiredPlayersCount}`);
+    }
   }
 
   const handleExitLobby = () => {
-      // In P2P, we would disconnect from the network.
+      peer?.destroy();
       router.push('/');
   }
 
   const currentPlayersCount = players.length;
   const requiredPlayersCount = parseInt(numPlayers);
   const canStartGame = isHost && currentPlayersCount === requiredPlayersCount;
+
+  if (!effectiveTableId && isHost) {
+    return (
+       <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-yellow-100 p-4 font-headline">
+         <Loader2 className="w-12 h-12 animate-spin text-primary" />
+         <p className="mt-4 text-lg">Creating lobby...</p>
+       </div>
+     );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-yellow-100 p-4 font-headline">
@@ -95,30 +149,28 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
           <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-lg">
             <p className="text-muted-foreground">TABLE CODE</p>
             <div className="flex items-center gap-2 mt-2">
-              <h2 className="text-4xl font-bold tracking-widest text-primary">{tableId}</h2>
-              <Button size="icon" variant="ghost" onClick={handleCopyCode}>
+              <h2 className="text-4xl font-bold tracking-widest text-primary">{effectiveTableId}</h2>
+              <Button size="icon" variant="ghost" onClick={handleCopyCode} disabled={!effectiveTableId}>
                 {isCopied ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5" />}
               </Button>
             </div>
           </div>
           
-          {isHost && (
-            <div className="flex items-center justify-between">
-              <label htmlFor="num-players" className="font-semibold">Number of Players:</label>
-              <Select value={numPlayers} onValueChange={handleNumPlayersChange} disabled={!isHost}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Select players" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="4">4 Players</SelectItem>
-                  <SelectItem value="5">5 Players</SelectItem>
-                  <SelectItem value="6">6 Players</SelectItem>
-                  <SelectItem value="7">7 Players</SelectItem>
-                  <SelectItem value="8">8 Players</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          <div className="flex items-center justify-between">
+            <label htmlFor="num-players" className="font-semibold">Number of Players:</label>
+            <Select value={numPlayers} onValueChange={handleNumPlayersChange} disabled={!isHost}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Select players" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="4">4 Players</SelectItem>
+                <SelectItem value="5">5 Players</SelectItem>
+                <SelectItem value="6">6 Players</SelectItem>
+                <SelectItem value="7">7 Players</SelectItem>
+                <SelectItem value="8">8 Players</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           <Separator />
           

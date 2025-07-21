@@ -1,17 +1,13 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Crown, Loader2, Swords } from "lucide-react";
-
-type Player = {
-  id: string;
-  name: string;
-  isHost: boolean;
-};
+import { usePeer } from "@/hooks/use-peer";
+import type { Player } from "@/hooks/use-peer";
 
 interface GamePageProps {
   tableId: string;
@@ -20,22 +16,23 @@ interface GamePageProps {
 
 export function GamePage({ tableId, isHost }: GamePageProps) {
   const router = useRouter();
-  const [players, setPlayers] = useState<Player[]>([]);
+  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
-  const playerId = typeof window !== 'undefined' ? localStorage.getItem("playerId") : null;
-  const nickname = typeof window !== 'undefined' ? localStorage.getItem("nickname") : null;
+
+  const nickname = useMemo(() => typeof window !== 'undefined' ? localStorage.getItem("nickname") : "Player", []);
+  const playerId = useMemo(() => typeof window !== 'undefined' ? localStorage.getItem("playerId") : "player_id", []);
+
+  const { players, setPlayers } = usePeer(playerId, nickname, isHost, tableId);
 
   useEffect(() => {
-    // Placeholder for fetching game state
-    setIsLoading(false);
-    if (playerId && nickname) {
-        // This is mock data, would be replaced by P2P state
-        setPlayers([{id: playerId, name: nickname, isHost: isHost}]);
+    // In a real game, you'd fetch initial game state here
+    // For now, we're just checking if we have a player identity
+    if (!playerId || !nickname) {
+      router.push('/');
     } else {
-        router.push('/');
+        setIsLoading(false);
     }
-
-  }, [tableId, playerId, nickname, isHost, router]);
+  }, [playerId, nickname, router]);
 
   if (isLoading) {
     return (
@@ -54,7 +51,7 @@ export function GamePage({ tableId, isHost }: GamePageProps) {
                  <Swords className="w-8 h-8 text-primary"/>
                 <CardTitle className="text-3xl">Kaali Teeri</CardTitle>
             </div>
-          <CardDescription>Game in progress...</CardDescription>
+          <CardDescription>Game in progress... (Table: {tableId})</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* This is where the main game board will go */}

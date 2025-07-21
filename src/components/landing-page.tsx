@@ -45,10 +45,8 @@ export function LandingPage() {
       return;
     }
     setIsCreating(true);
-    // For now, we'll just generate a code and navigate.
-    // P2P logic will be added later.
-    const tableCode = Math.floor(1000 + Math.random() * 9000).toString();
-    router.push(`/lobby/${tableCode}?host=true`);
+    // We navigate to a generic lobby page, which will handle peer creation
+    router.push(`/lobby/host?host=true`);
   };
 
   const handleJoinGame = () => {
@@ -60,10 +58,10 @@ export function LandingPage() {
       });
       return;
     }
-    if (!/^\d{4}$/.test(joinCode)) {
+    if (!joinCode.trim()) {
       toast({
         title: "Invalid Code",
-        description: "Please enter a valid 4-digit table code.",
+        description: "Please enter a valid table code.",
         variant: "destructive",
       });
       return;
@@ -108,16 +106,15 @@ export function LandingPage() {
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Join a Game</DialogTitle>
-                <DialogDescription>Enter the 4-digit code from your host.</DialogDescription>
+                <DialogDescription>Enter the code from your host.</DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <Label htmlFor="join-code" className="sr-only">Table Code</Label>
                 <Input
                   id="join-code"
-                  placeholder="4-Digit Code"
+                  placeholder="Table Code"
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value)}
-                  maxLength={4}
                   className="text-center text-lg h-12"
                 />
               </div>
