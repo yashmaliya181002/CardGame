@@ -1,3 +1,4 @@
+
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
@@ -13,11 +14,15 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase for client-side
-let app: FirebaseApp;
-if (typeof window !== 'undefined') {
-  app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+function getFirebaseApp(): FirebaseApp {
+    if (typeof window !== 'undefined') {
+        return getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+    }
+    // On the server, we need to create a new app instance
+    return initializeApp(firebaseConfig, `app-${Date.now()}-${Math.random()}`);
 }
 
-const db = getFirestore(app!);
+const app = getFirebaseApp();
+const db = getFirestore(app);
 
 export { db, collection, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteDoc };

@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Crown, User, Copy, Check, LogOut, Loader2, PartyPopper } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "./ui/separator";
-import { db, doc, onSnapshot, updateDoc, arrayUnion, setDoc, getDoc, arrayRemove, deleteDoc } from "@/lib/firebase";
+import { db, doc, onSnapshot, updateDoc, arrayUnion, getDoc, arrayRemove, deleteDoc } from "@/lib/firebase";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -82,46 +82,42 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
     setPlayer(self);
     const lobbyDocRef = doc(db, "lobbies", tableId);
 
-    const setupLobby = async () => {
+    const joinLobby = async () => {
       try {
         const docSnap = await getDoc(lobbyDocRef);
-        if (isHost) {
-          await setDoc(lobbyDocRef, {
-            players: [self],
-            numPlayers: parseInt(numPlayers),
-            hostId: self.id,
-            createdAt: new Date(),
-            status: 'waiting'
-          });
-        } else {
-           if (!docSnap.exists() || docSnap.data().status === 'ended') {
-             toast({ title: "Lobby not found", description: "This lobby doesn't exist or has been closed.", variant: "destructive" });
-             router.push('/');
-             return;
+         if (!docSnap.exists() || docSnap.data().status === 'ended') {
+           toast({ title: "Lobby not found", description: "This lobby doesn't exist or has been closed.", variant: "destructive" });
+           router.push('/');
+           return;
+         }
+         if (docSnap.data().status === 'in-progress') {
+           const isPlayerInGame = docSnap.data().players.some((p: Player) => p.id === playerId);
+           if(isPlayerInGame) {
+              router.push(`/game/${tableId}`);
+           } else {
+              toast({ title: "Game in progress", description: "This game has already started.", variant: "destructive" });
+              router.push('/');
            }
-           if (docSnap.data().status === 'in-progress') {
-             const isPlayerInGame = docSnap.data().players.some((p: Player) => p.id === playerId);
-             if(isPlayerInGame) {
-                router.push(`/game/${tableId}`);
-             } else {
-                toast({ title: "Game in progress", description: "This game has already started.", variant: "destructive" });
-                router.push('/');
-             }
-             return;
-           }
-           await updateDoc(lobbyDocRef, {
-             players: arrayUnion(self)
-           });
-        }
+           return;
+         }
+         
+         const currentPlayers = docSnap.data().players || [];
+         if (!currentPlayers.some((p: Player) => p.id === self.id)) {
+            await updateDoc(lobbyDocRef, {
+                players: arrayUnion(self)
+            });
+         }
       } catch (error) {
-        console.error("Error setting up lobby: ", error);
-        toast({ title: "Error", description: "Could not create or join the lobby.", variant: "destructive" });
+        console.error("Error joining lobby: ", error);
+        toast({ title: "Error", description: "Could not join the lobby.", variant: "destructive" });
         router.push('/');
         return;
       }
     };
     
-    setupLobby();
+    if (!isHost) {
+        joinLobby();
+    }
 
     const unsubscribe = onSnapshot(lobbyDocRef, (docSnap) => {
       setIsLoading(false);
@@ -141,6 +137,7 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       }
     }, (error) => {
       console.error("Snapshot error: ", error);
+      setIsLoading(false);
       toast({ title: "Connection error", description: "Lost connection to the lobby.", variant: "destructive" });
       router.push('/');
     });

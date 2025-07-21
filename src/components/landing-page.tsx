@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -10,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from "@/hooks/use-toast";
 import { Label } from "./ui/label";
 import { Hand, Users, Swords, Trophy } from "lucide-react";
+import { db, doc, setDoc } from "@/lib/firebase";
 
 export function LandingPage() {
   const [nickname, setNickname] = useState("");
@@ -33,7 +35,7 @@ export function LandingPage() {
     }
   }
 
-  const handleCreateGame = () => {
+  const handleCreateGame = async () => {
     if (nickname.trim().length < 2) {
       toast({
         title: "Invalid Name",
@@ -44,7 +46,28 @@ export function LandingPage() {
     }
     const tableCode = Math.floor(1000 + Math.random() * 9000).toString();
     saveIdentity();
-    router.push(`/lobby/${tableCode}?host=true`);
+    
+    const playerId = localStorage.getItem("playerId")!;
+    const player = { id: playerId, name: nickname, isHost: true };
+    
+    try {
+        const lobbyDocRef = doc(db, "lobbies", tableCode);
+        await setDoc(lobbyDocRef, {
+            players: [player],
+            numPlayers: 4,
+            hostId: playerId,
+            createdAt: new Date(),
+            status: 'waiting'
+        });
+        router.push(`/lobby/${tableCode}?host=true`);
+    } catch (error) {
+        console.error("Error creating lobby:", error);
+        toast({
+            title: "Error Creating Table",
+            description: "Could not create a new game table. Please check your connection and try again.",
+            variant: "destructive",
+        });
+    }
   };
 
   const handleJoinGame = () => {
