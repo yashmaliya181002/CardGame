@@ -45,9 +45,11 @@ export function LandingPage() {
       return;
     }
     setIsCreating(true);
-    // We navigate to a generic lobby page, which will handle peer creation
-    // The lobby page will generate the code from the host's peerId
-    router.push(`/lobby/host?host=true`);
+    
+    // Generate a 4-character alphanumeric code
+    const tableId = Math.random().toString(36).substring(2, 6).toUpperCase();
+
+    router.push(`/lobby/${tableId}?host=true`);
   };
 
   const handleJoinGame = () => {
@@ -67,7 +69,7 @@ export function LandingPage() {
       });
       return;
     }
-    router.push(`/lobby/${joinCode}`);
+    router.push(`/lobby/${joinCode.toUpperCase()}`);
   };
 
   return (
