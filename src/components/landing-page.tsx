@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,22 @@ export function LandingPage() {
   const router = useRouter();
   const { toast } = useToast();
 
+  useEffect(() => {
+    // On component mount, check if a nickname is already in local storage
+    const storedNickname = localStorage.getItem("nickname");
+    if (storedNickname) {
+      setNickname(storedNickname);
+    }
+  }, []);
+
+  const saveIdentity = () => {
+    localStorage.setItem("nickname", nickname);
+    // Create a simple unique ID for the player session
+    if (!localStorage.getItem("playerId")) {
+        localStorage.setItem("playerId", `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+    }
+  }
+
   const handleCreateGame = () => {
     if (nickname.trim().length < 2) {
       toast({
@@ -27,7 +43,7 @@ export function LandingPage() {
       return;
     }
     const tableCode = Math.floor(1000 + Math.random() * 9000).toString();
-    localStorage.setItem("nickname", nickname);
+    saveIdentity();
     router.push(`/lobby/${tableCode}?host=true`);
   };
 
@@ -48,7 +64,7 @@ export function LandingPage() {
       });
       return;
     }
-    localStorage.setItem("nickname", nickname);
+    saveIdentity();
     router.push(`/lobby/${joinCode}`);
   };
 
