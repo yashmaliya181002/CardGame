@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,20 +42,29 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   const [numPlayers, setNumPlayers] = useState("4");
   const [isCopied, setIsCopied] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const isLeaving = useRef(false);
 
   const nickname = typeof window !== 'undefined' ? localStorage.getItem("nickname") : null;
   const playerId = typeof window !== 'undefined' ? localStorage.getItem("playerId") : null;
 
   const leaveLobby = useCallback(async (isHostLeaving = false) => {
+    isLeaving.current = true;
     if (player) {
       const lobbyDocRef = doc(db, "lobbies", tableId);
       
-      if (isHostLeaving) {
-        await deleteDoc(lobbyDocRef);
-      } else {
-        await updateDoc(lobbyDocRef, {
-          players: arrayRemove(player)
-        }).catch(err => console.log("Player may have already been removed."));
+      try {
+        if (isHostLeaving) {
+          await deleteDoc(lobbyDocRef);
+        } else {
+          const docSnap = await getDoc(lobbyDocRef);
+          if (docSnap.exists()) {
+             await updateDoc(lobbyDocRef, {
+               players: arrayRemove(player)
+             });
+          }
+        }
+      } catch (error) {
+         console.error("Error leaving lobby:", error);
       }
     }
     router.push('/');
@@ -64,7 +73,7 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
 
   useEffect(() => {
     if (!nickname || !playerId) {
-      toast({ title: "Error", description: "You need a nickname to join a lobby.", variant: "destructive" });
+      toast({ title: "Error", description: "You need a name to join.", variant: "destructive" });
       router.push("/");
       return;
     }
@@ -77,10 +86,6 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       try {
         const docSnap = await getDoc(lobbyDocRef);
         if (isHost) {
-          if (docSnap.exists() && docSnap.data().status === 'in-progress') {
-             router.push(`/game/${tableId}?host=true`);
-             return;
-          }
           await setDoc(lobbyDocRef, {
             players: [self],
             numPlayers: parseInt(numPlayers),
@@ -89,13 +94,19 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
             status: 'waiting'
           });
         } else {
-           if (!docSnap.exists()) {
-             toast({ title: "Lobby not found", description: "This lobby does not exist or has been closed.", variant: "destructive" });
+           if (!docSnap.exists() || docSnap.data().status === 'ended') {
+             toast({ title: "Lobby not found", description: "This lobby doesn't exist or has been closed.", variant: "destructive" });
              router.push('/');
              return;
            }
            if (docSnap.data().status === 'in-progress') {
-             router.push(`/game/${tableId}`);
+             const isPlayerInGame = docSnap.data().players.some((p: Player) => p.id === playerId);
+             if(isPlayerInGame) {
+                router.push(`/game/${tableId}`);
+             } else {
+                toast({ title: "Game in progress", description: "This game has already started.", variant: "destructive" });
+                router.push('/');
+             }
              return;
            }
            await updateDoc(lobbyDocRef, {
@@ -116,14 +127,14 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       setIsLoading(false);
       if (docSnap.exists()) {
         const data = docSnap.data();
-        if (data.status === 'in-progress') {
-            router.push(`/game/${tableId}?host=${player?.isHost ?? false}`);
+        if (data.status === 'in-progress' && !isLeaving.current) {
+            router.push(`/game/${tableId}?host=${isHost}`);
             return;
         }
         setPlayers(data.players || []);
         setNumPlayers(data.numPlayers?.toString() || "4");
       } else {
-        if (!isHost) {
+        if (!isLeaving.current) {
             toast({ title: "Lobby closed", description: "The host has closed the lobby." });
             router.push('/');
         }
@@ -134,14 +145,20 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       router.push('/');
     });
 
-    return () => {
-      unsubscribe();
-      if(player && !player.isHost) {
-          leaveLobby(false);
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (player) {
+         leaveLobby(player.isHost);
       }
     };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      unsubscribe();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableId, nickname, playerId, isHost, router, toast]);
+  }, []);
   
 
   const handleNumPlayersChange = async (value: string) => {
@@ -163,7 +180,6 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
     if (canStartGame) {
       const lobbyDocRef = doc(db, "lobbies", tableId);
       await updateDoc(lobbyDocRef, { status: "in-progress" });
-      // Navigation will be handled by the onSnapshot listener
     }
   }
 
