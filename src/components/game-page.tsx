@@ -6,8 +6,6 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Crown, Loader2, Swords } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { db, doc, onSnapshot } from "@/lib/firebase";
 
 type Player = {
   id: string;
@@ -20,43 +18,24 @@ interface GamePageProps {
   isHost: boolean;
 }
 
-export function GamePage({ tableId }: GamePageProps) {
+export function GamePage({ tableId, isHost }: GamePageProps) {
   const router = useRouter();
-  const { toast } = useToast();
   const [players, setPlayers] = useState<Player[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const playerId = typeof window !== 'undefined' ? localStorage.getItem("playerId") : null;
+  const nickname = typeof window !== 'undefined' ? localStorage.getItem("nickname") : null;
 
   useEffect(() => {
-    if (!playerId) {
-      toast({ title: "Error", description: "You are not part of this game.", variant: "destructive" });
-      router.push("/");
-      return;
+    // Placeholder for fetching game state
+    setIsLoading(false);
+    if (playerId && nickname) {
+        // This is mock data, would be replaced by P2P state
+        setPlayers([{id: playerId, name: nickname, isHost: isHost}]);
+    } else {
+        router.push('/');
     }
 
-    const lobbyDocRef = doc(db, "lobbies", tableId);
-
-    const unsubscribe = onSnapshot(lobbyDocRef, (docSnap) => {
-      setIsLoading(false);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setPlayers(data.players || []);
-        if (data.status !== 'in-progress') {
-            toast({ title: "Game Over", description: "The host has ended the game." });
-            router.push('/');
-        }
-      } else {
-        toast({ title: "Game not found", description: "This game session does not exist.", variant: "destructive" });
-        router.push('/');
-      }
-    }, (error) => {
-      console.error("Snapshot error: ", error);
-      toast({ title: "Connection error", description: "Lost connection to the game.", variant: "destructive" });
-      router.push('/');
-    });
-
-    return () => unsubscribe();
-  }, [tableId, playerId, router, toast]);
+  }, [tableId, playerId, nickname, isHost, router]);
 
   if (isLoading) {
     return (

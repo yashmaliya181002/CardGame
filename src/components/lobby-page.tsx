@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Crown, User, Copy, Check, LogOut, Loader2, PartyPopper } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "./ui/separator";
-import { db, doc, onSnapshot, updateDoc, arrayUnion, getDoc, arrayRemove, deleteDoc } from "@/lib/firebase";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,125 +36,30 @@ interface LobbyPageProps {
 export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   const router = useRouter();
   const { toast } = useToast();
+  // For now, this is mock data. We'll replace it with P2P state.
   const [players, setPlayers] = useState<Player[]>([]);
   const [numPlayers, setNumPlayers] = useState("4");
   const [isCopied, setIsCopied] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const isLeaving = useRef(false);
 
-  const nickname = typeof window !== 'undefined' ? localStorage.getItem("nickname") : null;
-  const playerId = typeof window !== 'undefined' ? localStorage.getItem("playerId") : null;
-
-  const leaveLobby = useCallback(async (isHostLeaving = false) => {
-    if (isLeaving.current) return;
-    isLeaving.current = true;
-    
-    if (playerId) {
-      const lobbyDocRef = doc(db, "lobbies", tableId);
-      try {
-        if (isHostLeaving) {
-          await deleteDoc(lobbyDocRef);
-        } else {
-          const docSnap = await getDoc(lobbyDocRef);
-          if (docSnap.exists()) {
-             const playerToRemove = docSnap.data().players.find((p: Player) => p.id === playerId);
-             if (playerToRemove) {
-                await updateDoc(lobbyDocRef, {
-                  players: arrayRemove(playerToRemove)
-                });
-             }
-          }
-        }
-      } catch (error) {
-         console.error("Error leaving lobby:", error);
-      }
-    }
-    router.push('/');
-  }, [playerId, tableId, router]);
-
-
+  const nickname = typeof window !== 'undefined' ? localStorage.getItem("nickname") : "Player";
+  const playerId = typeof window !== 'undefined' ? localStorage.getItem("playerId") : "player_id";
+  
   useEffect(() => {
-    if (!nickname || !playerId) {
-      toast({ title: "Error", description: "You need a name to join.", variant: "destructive" });
-      router.push("/");
-      return;
-    }
-
-    const self: Player = { id: playerId, name: nickname, isHost };
-    const lobbyDocRef = doc(db, "lobbies", tableId);
-
-    const joinLobby = async () => {
-      try {
-        const docSnap = await getDoc(lobbyDocRef);
-         if (!docSnap.exists()) {
-           toast({ title: "Lobby not found", description: "This lobby doesn't exist or has been closed.", variant: "destructive" });
-           router.push('/');
-           return;
-         }
-         
-         if (docSnap.data().status === 'in-progress') {
-           const isPlayerInGame = docSnap.data().players.some((p: Player) => p.id === playerId);
-           if(isPlayerInGame) {
-              router.push(`/game/${tableId}`);
-           } else {
-              toast({ title: "Game in progress", description: "This game has already started.", variant: "destructive" });
-              router.push('/');
-           }
-           return;
-         }
-         
-         const currentPlayers = docSnap.data().players || [];
-         if (!currentPlayers.some((p: Player) => p.id === self.id)) {
-            await updateDoc(lobbyDocRef, {
-                players: arrayUnion(self)
-            });
-         }
-      } catch (error) {
-        console.error("Error joining lobby: ", error);
-        toast({ title: "Error", description: "Could not join the lobby.", variant: "destructive" });
+      // In a real P2P setup, we would join a network here.
+      // For now, if you are the host, you are the only one in the lobby.
+      if (playerId && nickname) {
+          const self = { id: playerId, name: nickname, isHost };
+          setPlayers([self]);
+      } else {
+        toast({ title: "Error", description: "Could not identify player.", variant: "destructive" });
         router.push('/');
       }
-    };
-    
-    if (!isHost) {
-        joinLobby();
-    }
+  }, [playerId, nickname, isHost, router, toast]);
 
-    const unsubscribe = onSnapshot(lobbyDocRef, (docSnap) => {
-      setIsLoading(false);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.status === 'in-progress' && !isLeaving.current) {
-            router.push(`/game/${tableId}?host=${isHost}`);
-            return;
-        }
-        setPlayers(data.players || []);
-        setNumPlayers(data.numPlayers?.toString() || "4");
-      } else {
-        if (!isLeaving.current) {
-            toast({ title: "Lobby closed", description: "The host has closed the lobby." });
-            router.push('/');
-        }
-      }
-    }, (error) => {
-      console.error("Snapshot error: ", error);
-      setIsLoading(false);
-      toast({ title: "Connection error", description: "Lost connection to the lobby.", variant: "destructive" });
-      router.push('/');
-    });
 
-    return () => {
-      unsubscribe();
-    };
-  }, [tableId, isHost, nickname, playerId, router, toast]);
-  
-
-  const handleNumPlayersChange = async (value: string) => {
+  const handleNumPlayersChange = (value: string) => {
     setNumPlayers(value);
-    if(isHost) {
-        const lobbyDocRef = doc(db, "lobbies", tableId);
-        await updateDoc(lobbyDocRef, { numPlayers: parseInt(value) });
-    }
+    // In P2P, the host would broadcast this change to other peers.
   }
 
   const handleCopyCode = () => {
@@ -165,25 +69,20 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
     setTimeout(() => setIsCopied(false), 2000);
   };
   
-  const handleStartGame = async () => {
-    if (canStartGame) {
-      const lobbyDocRef = doc(db, "lobbies", tableId);
-      await updateDoc(lobbyDocRef, { status: "in-progress" });
-    }
+  const handleStartGame = () => {
+    // This will navigate all players to the game screen.
+    // In P2P, the host would send a "start-game" message.
+    router.push(`/game/${tableId}?host=${isHost}`);
+  }
+
+  const handleExitLobby = () => {
+      // In P2P, we would disconnect from the network.
+      router.push('/');
   }
 
   const currentPlayersCount = players.length;
   const requiredPlayersCount = parseInt(numPlayers);
   const canStartGame = isHost && currentPlayersCount === requiredPlayersCount;
-
-  if (isLoading) {
-      return (
-          <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-yellow-100 p-4">
-              <Loader2 className="w-12 h-12 animate-spin text-primary"/>
-              <p className="mt-4 text-lg">Joining lobby...</p>
-          </div>
-      )
-  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-yellow-100 p-4 font-headline">
@@ -243,7 +142,7 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
                 </div>
               ))}
                {Array.from({ length: Math.max(0, requiredPlayersCount - currentPlayersCount) }).map((_, index) => (
-                <div key={index} className="flex items-center gap-3 p-3 bg-secondary/50 rounded-lg animate-pulse">
+                <div key={`waiting-${index}`} className="flex items-center gap-3 p-3 bg-secondary/50 rounded-lg animate-pulse">
                    <Avatar>
                       <AvatarFallback>?</AvatarFallback>
                     </Avatar>
@@ -271,12 +170,12 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Are you sure you want to leave?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    {isHost ? "If you leave, the lobby will be closed for everyone." : "You will be removed from the lobby and can rejoin later if there's space."}
+                    {isHost ? "If you leave, the lobby will be closed for everyone." : "You will be removed from the lobby."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => leaveLobby(isHost)} className="bg-destructive hover:bg-destructive/90">Leave</AlertDialogAction>
+                  <AlertDialogAction onClick={handleExitLobby} className="bg-destructive hover:bg-destructive/90">Leave</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
           </AlertDialog>

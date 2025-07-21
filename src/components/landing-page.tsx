@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from "@/hooks/use-toast";
 import { Label } from "./ui/label";
 import { Hand, Users, Swords, Trophy, Loader2 } from "lucide-react";
-import { db, doc, setDoc } from "@/lib/firebase";
 
 export function LandingPage() {
   const [nickname, setNickname] = useState("");
@@ -46,30 +45,10 @@ export function LandingPage() {
       return;
     }
     setIsCreating(true);
-    
+    // For now, we'll just generate a code and navigate.
+    // P2P logic will be added later.
     const tableCode = Math.floor(1000 + Math.random() * 9000).toString();
-    const playerId = localStorage.getItem("playerId")!;
-    const player = { id: playerId, name: nickname, isHost: true };
-    
-    try {
-        const lobbyDocRef = doc(db, "lobbies", tableCode);
-        await setDoc(lobbyDocRef, {
-            players: [player],
-            numPlayers: 4,
-            hostId: playerId,
-            createdAt: new Date(),
-            status: 'waiting'
-        });
-        router.push(`/lobby/${tableCode}?host=true`);
-    } catch (error) {
-        console.error("Error creating lobby:", error);
-        toast({
-            title: "Error Creating Table",
-            description: "Could not create a new game table. Please check your connection and Firebase configuration.",
-            variant: "destructive",
-        });
-        setIsCreating(false);
-    }
+    router.push(`/lobby/${tableCode}?host=true`);
   };
 
   const handleJoinGame = () => {
@@ -95,7 +74,7 @@ export function LandingPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-yellow-100 p-4 font-headline">
       <div className="text-center mb-8">
-        <h1 className="text-5xl font-bold text-primary-foreground bg-primary py-2 px-4 rounded-lg shadow-lg inline-block animate-pulse">
+        <h1 className="text-5xl font-bold text-primary-foreground bg-primary py-2 px-4 rounded-lg shadow-lg inline-block transition-transform transform hover:scale-105">
         ♠️ Kaali Teeri
         </h1>
         <p className="text-xl mt-2 text-muted-foreground font-semibold">Real Card Battles</p>
