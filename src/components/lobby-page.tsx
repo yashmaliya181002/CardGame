@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
@@ -50,10 +51,8 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       const lobbyDocRef = doc(db, "lobbies", tableId);
       
       if (isHostLeaving) {
-        // If the host is leaving, delete the entire lobby document
         await deleteDoc(lobbyDocRef);
       } else {
-        // A regular player is leaving, just remove them from the players array
         await updateDoc(lobbyDocRef, {
           players: arrayRemove(player)
         }).catch(err => console.log("Player may have already been removed."));
@@ -78,21 +77,27 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       try {
         const docSnap = await getDoc(lobbyDocRef);
         if (isHost) {
-          // Host creates the lobby
+          if (docSnap.exists() && docSnap.data().status === 'in-progress') {
+             router.push(`/game/${tableId}?host=true`);
+             return;
+          }
           await setDoc(lobbyDocRef, {
             players: [self],
             numPlayers: parseInt(numPlayers),
             hostId: self.id,
             createdAt: new Date(),
+            status: 'waiting'
           });
         } else {
-          // Player joins the lobby
            if (!docSnap.exists()) {
              toast({ title: "Lobby not found", description: "This lobby does not exist or has been closed.", variant: "destructive" });
              router.push('/');
              return;
            }
-           // Add player to the existing lobby
+           if (docSnap.data().status === 'in-progress') {
+             router.push(`/game/${tableId}`);
+             return;
+           }
            await updateDoc(lobbyDocRef, {
              players: arrayUnion(self)
            });
@@ -111,11 +116,14 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       setIsLoading(false);
       if (docSnap.exists()) {
         const data = docSnap.data();
+        if (data.status === 'in-progress') {
+            router.push(`/game/${tableId}?host=${player?.isHost ?? false}`);
+            return;
+        }
         setPlayers(data.players || []);
         setNumPlayers(data.numPlayers?.toString() || "4");
       } else {
-        // Lobby was deleted (e.g., host left)
-        if (!isHost) { // Only show toast to non-hosts
+        if (!isHost) {
             toast({ title: "Lobby closed", description: "The host has closed the lobby." });
             router.push('/');
         }
@@ -126,11 +134,9 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       router.push('/');
     });
 
-    // Clean up subscription on component unmount
     return () => {
       unsubscribe();
       if(player && !player.isHost) {
-          // To prevent race conditions, we don't await this
           leaveLobby(false);
       }
     };
@@ -153,9 +159,12 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
     setTimeout(() => setIsCopied(false), 2000);
   };
   
-  const handleStartGame = () => {
-    // Game start logic would go here
-    toast({ title: "Starting Game!", description: "Get ready to play." });
+  const handleStartGame = async () => {
+    if (canStartGame) {
+      const lobbyDocRef = doc(db, "lobbies", tableId);
+      await updateDoc(lobbyDocRef, { status: "in-progress" });
+      // Navigation will be handled by the onSnapshot listener
+    }
   }
 
   const currentPlayersCount = players.length;
