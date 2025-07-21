@@ -48,19 +48,25 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   const playerId = typeof window !== 'undefined' ? localStorage.getItem("playerId") : null;
 
   const leaveLobby = useCallback(async (isHostLeaving = false) => {
+    if (isLeaving.current) return;
     isLeaving.current = true;
-    if (player) {
+    
+    if (playerId) {
       const lobbyDocRef = doc(db, "lobbies", tableId);
-      
       try {
         if (isHostLeaving) {
+          // Host leaves, delete the entire lobby
           await deleteDoc(lobbyDocRef);
         } else {
+          // Player leaves, remove them from the players array
           const docSnap = await getDoc(lobbyDocRef);
           if (docSnap.exists()) {
-             await updateDoc(lobbyDocRef, {
-               players: arrayRemove(player)
-             });
+             const aPlayer = docSnap.data().players.find((p: Player) => p.id === playerId);
+             if (aPlayer) {
+                await updateDoc(lobbyDocRef, {
+                  players: arrayRemove(aPlayer)
+                });
+             }
           }
         }
       } catch (error) {
@@ -68,7 +74,7 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       }
     }
     router.push('/');
-  }, [player, tableId, router]);
+  }, [playerId, tableId, router]);
 
 
   useEffect(() => {
@@ -143,9 +149,10 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
     });
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (player) {
-         leaveLobby(player.isHost);
-      }
+      // This is a legacy feature and might not work in all modern browsers
+      // for making async calls. The leaveLobby logic is better handled
+      // when the component unmounts or via explicit user action.
+      // For simplicity, we can rely on the user clicking the exit button.
     };
     
     window.addEventListener('beforeunload', handleBeforeUnload);

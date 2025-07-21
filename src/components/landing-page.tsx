@@ -21,7 +21,6 @@ export function LandingPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // On component mount, check if a nickname is already in local storage
     const storedNickname = localStorage.getItem("nickname");
     if (storedNickname) {
       setNickname(storedNickname);
@@ -29,15 +28,16 @@ export function LandingPage() {
   }, []);
 
   const saveIdentity = () => {
+    if (nickname.trim().length < 2) return false;
     localStorage.setItem("nickname", nickname);
-    // Create a simple unique ID for the player session
     if (!localStorage.getItem("playerId")) {
         localStorage.setItem("playerId", `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
     }
+    return true;
   }
 
   const handleCreateGame = async () => {
-    if (nickname.trim().length < 2) {
+    if (!saveIdentity()) {
       toast({
         title: "Invalid Name",
         description: "Please enter a name with at least 2 characters.",
@@ -46,9 +46,8 @@ export function LandingPage() {
       return;
     }
     setIsCreating(true);
-    const tableCode = Math.floor(1000 + Math.random() * 9000).toString();
-    saveIdentity();
     
+    const tableCode = Math.floor(1000 + Math.random() * 9000).toString();
     const playerId = localStorage.getItem("playerId")!;
     const player = { id: playerId, name: nickname, isHost: true };
     
@@ -69,13 +68,12 @@ export function LandingPage() {
             description: "Could not create a new game table. Please check your connection and Firebase configuration.",
             variant: "destructive",
         });
-    } finally {
         setIsCreating(false);
     }
   };
 
   const handleJoinGame = () => {
-    if (nickname.trim().length < 2) {
+    if (!saveIdentity()) {
       toast({
         title: "Invalid Name",
         description: "Please enter a name with at least 2 characters.",
@@ -91,7 +89,6 @@ export function LandingPage() {
       });
       return;
     }
-    saveIdentity();
     router.push(`/lobby/${joinCode}`);
   };
 
