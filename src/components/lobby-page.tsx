@@ -22,6 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { usePeer } from "@/hooks/use-peer";
+import type { Player } from "@/hooks/use-peer";
 
 interface LobbyPageProps {
   tableId: string;
@@ -37,45 +38,44 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   const nickname = useMemo(() => typeof window !== 'undefined' ? localStorage.getItem("nickname") : "Player", []);
   const playerId = useMemo(() => typeof window !== 'undefined' ? localStorage.getItem("playerId") : "player_id", []);
 
-  const { peer, peerId, players, setPlayers, broadcast, message } = usePeer(playerId, nickname, tableId, isHost);
+  const { peer, peerId, players, setPlayers, broadcast, message } = usePeer(playerId, nickname, isHost ? undefined : tableId);
 
-  // Effect for handling incoming messages from peers
+  // Set the host as the first player once the peer connection is established
   useEffect(() => {
-    if (!message) return;
+    if (isHost && peerId && playerId && nickname && players.length === 0) {
+      const hostPlayer = { id: playerId, name: nickname, isHost: true };
+      setPlayers([hostPlayer]);
+    }
+  }, [isHost, peerId, playerId, nickname, players, setPlayers]);
 
-    switch (message.type) {
+  // Handle incoming messages
+  useEffect(() => {
+    if (message) {
+      switch (message.type) {
         case 'lobby-update':
-            setPlayers(message.payload.players);
-            setNumPlayers(message.payload.numPlayers.toString());
-            break;
+          setPlayers(message.payload.players);
+          setNumPlayers(message.payload.numPlayers.toString());
+          break;
         case 'start-game':
-            router.push(`/game/${message.payload.tableId}?host=${isHost}&players=${message.payload.numPlayers}`);
-            break;
+          router.push(`/game/${message.payload.tableId}?host=${isHost}`);
+          break;
+      }
     }
   }, [message, router, setPlayers, isHost]);
 
 
-  // Effect for host to add themself to player list
-  useEffect(() => {
-    if (isHost && peerId && playerId && nickname) {
-        setPlayers([{ id: playerId, name: nickname, isHost: true }]);
-    }
-  }, [isHost, peerId, playerId, nickname, setPlayers]);
-
-
   const handleNumPlayersChange = (value: string) => {
-    const newNumPlayers = parseInt(value, 10);
     setNumPlayers(value);
     if(isHost) {
-      const updatedPlayers = players.slice(0, newNumPlayers);
-      setPlayers(updatedPlayers);
-      broadcast({type: 'lobby-update', payload: { players: updatedPlayers, numPlayers: value }});
+      broadcast({ type: 'lobby-update', payload: { players, numPlayers: value } });
     }
   }
 
   const handleCopyCode = () => {
-    if(!peerId) return;
-    navigator.clipboard.writeText(peerId);
+    const code = isHost ? peerId : tableId;
+    if(!code) return;
+
+    navigator.clipboard.writeText(code);
     setIsCopied(true);
     toast({ title: "Copied!", description: "Table code copied to clipboard." });
     setTimeout(() => setIsCopied(false), 2000);
@@ -83,13 +83,15 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   
   const handleStartGame = () => {
     if (isHost) {
-      broadcast({ type: 'start-game', payload: { tableId: peerId, numPlayers: requiredPlayersCount } });
-      router.push(`/game/${peerId}?host=true&players=${requiredPlayersCount}`);
+      const gameTableId = peerId;
+      broadcast({ type: 'start-game', payload: { tableId: gameTableId } });
+      router.push(`/game/${gameTableId}?host=true`);
     }
   }
 
   const handleExitLobby = () => {
       peer?.destroy();
+      localStorage.removeItem('peerId');
       router.push('/');
   }
 
