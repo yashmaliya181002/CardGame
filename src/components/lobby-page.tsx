@@ -45,17 +45,18 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
   const nickname = typeof window !== 'undefined' ? localStorage.getItem("nickname") : null;
   const playerId = typeof window !== 'undefined' ? localStorage.getItem("playerId") : null;
 
-  const leaveLobby = useCallback(async () => {
+  const leaveLobby = useCallback(async (isHostLeaving = false) => {
     if (player) {
       const lobbyDocRef = doc(db, "lobbies", tableId);
-      await updateDoc(lobbyDocRef, {
-        players: arrayRemove(player)
-      });
-
-      // If host leaves, another player should become host or lobby deleted.
-      // For simplicity now, let's say if host leaves, lobby is deleted.
-      if (player.isHost) {
-          await deleteDoc(lobbyDocRef);
+      
+      if (isHostLeaving) {
+        // If the host is leaving, delete the entire lobby document
+        await deleteDoc(lobbyDocRef);
+      } else {
+        // A regular player is leaving, just remove them from the players array
+        await updateDoc(lobbyDocRef, {
+          players: arrayRemove(player)
+        }).catch(err => console.log("Player may have already been removed."));
       }
     }
     router.push('/');
@@ -73,45 +74,48 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
     setPlayer(self);
     const lobbyDocRef = doc(db, "lobbies", tableId);
 
-    const joinLobby = async () => {
+    const setupLobby = async () => {
       try {
         const docSnap = await getDoc(lobbyDocRef);
         if (isHost) {
-          if (!docSnap.exists()) {
-            await setDoc(lobbyDocRef, {
-              players: [self],
-              numPlayers: parseInt(numPlayers),
-              hostId: self.id
-            });
-          }
+          // Host creates the lobby
+          await setDoc(lobbyDocRef, {
+            players: [self],
+            numPlayers: parseInt(numPlayers),
+            hostId: self.id,
+            createdAt: new Date(),
+          });
         } else {
+          // Player joins the lobby
            if (!docSnap.exists()) {
-             toast({ title: "Lobby not found", description: "This lobby does not exist.", variant: "destructive" });
+             toast({ title: "Lobby not found", description: "This lobby does not exist or has been closed.", variant: "destructive" });
              router.push('/');
              return;
            }
+           // Add player to the existing lobby
            await updateDoc(lobbyDocRef, {
              players: arrayUnion(self)
            });
         }
       } catch (error) {
-        console.error("Error joining lobby: ", error);
-        toast({ title: "Error", description: "Could not join the lobby.", variant: "destructive" });
+        console.error("Error setting up lobby: ", error);
+        toast({ title: "Error", description: "Could not create or join the lobby.", variant: "destructive" });
         router.push('/');
+        return;
       }
     };
-
-    joinLobby();
+    
+    setupLobby();
 
     const unsubscribe = onSnapshot(lobbyDocRef, (docSnap) => {
+      setIsLoading(false);
       if (docSnap.exists()) {
         const data = docSnap.data();
         setPlayers(data.players || []);
         setNumPlayers(data.numPlayers?.toString() || "4");
-        setIsLoading(false);
       } else {
-        // Lobby was deleted (e.g. host left)
-        if (!isHost) {
+        // Lobby was deleted (e.g., host left)
+        if (!isHost) { // Only show toast to non-hosts
             toast({ title: "Lobby closed", description: "The host has closed the lobby." });
             router.push('/');
         }
@@ -122,24 +126,17 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
       router.push('/');
     });
 
-    // Clean up subscription and player removal on component unmount
+    // Clean up subscription on component unmount
     return () => {
       unsubscribe();
+      if(player && !player.isHost) {
+          // To prevent race conditions, we don't await this
+          leaveLobby(false);
+      }
     };
-  }, [isHost, router, tableId, nickname, playerId, numPlayers, toast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableId, nickname, playerId, isHost, router, toast]);
   
-   useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-        // This is a synchronous operation, we cannot do async here.
-        // The best we can do is flag player for removal or handle on next load.
-        // Real-time presence is complex. For now, we handle explicit exit.
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [leaveLobby]);
 
   const handleNumPlayersChange = async (value: string) => {
     setNumPlayers(value);
@@ -265,7 +262,7 @@ export function LobbyPage({ tableId, isHost }: LobbyPageProps) {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={leaveLobby} className="bg-destructive hover:bg-destructive/90">Leave</AlertDialogAction>
+                  <AlertDialogAction onClick={() => leaveLobby(isHost)} className="bg-destructive hover:bg-destructive/90">Leave</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
           </AlertDialog>
